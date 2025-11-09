@@ -152,7 +152,6 @@ print(f"💾 result_name_madori.txt に {len(results)} 件保存しました。"
 # 変更検知のためのハッシュ計算（データ部のみ！）
 # -----------------------------------------------------
 data_for_hash = json.dumps(results, ensure_ascii=False, sort_keys=True)
-print(json.dumps(results[:5], ensure_ascii=False, indent=2))
 hash_val = hashlib.sha256(data_for_hash.encode("utf-8")).hexdigest()
 
 last_hash = None
@@ -165,6 +164,9 @@ if is_changed:
     print("🆕 検索結果に変更があります（Discord通知を実行）")
 else:
     print("⏸️ 検索結果に変更はありません（Discord通知をスキップ）")
+
+print(hash_val)
+print(last_hash)
 
 # -----------------------------------------------------
 # Discord通知（差分があった場合のみ）
