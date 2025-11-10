@@ -1,6 +1,8 @@
 import time
 import datetime
 import re
+import os
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -151,36 +153,78 @@ now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 print(f"🏠 実行時刻: {now}")
 
 
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+
+def send_discord_message(content: str):
+    """Discordに通知を送る"""
+    if not DISCORD_WEBHOOK_URL:
+        print("⚠️ DISCORD_WEBHOOK_URL が設定されていません。")
+        return
+    data = {
+        "content": f"📢 **空室情報更新**\n```{content}```",
+        "username": "jkkchecker"
+    }
+    requests.post(DISCORD_WEBHOOK_URL, json=data)
+
+def get_main_content(file_path: str) -> str:
+    """比較用：4行目以降のみ取得"""
+    with open(file_path, "r", encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    return "\n".join(lines[3:]) if len(lines) > 3 else ""
+
+def get_full_content(file_path: str) -> str:
+    """通知用：ファイル全体を取得"""
+    with open(file_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+# -----------------------------------------------------
+# 差分比較と通知
+# -----------------------------------------------------
+prev_file = "previous_result/result_name_madori.txt"
+curr_file = "result_name_madori.txt"
+
+if os.path.exists(prev_file):
+    prev_content = get_main_content(prev_file)
+    curr_content = get_main_content(curr_file)
+    if prev_content.strip() != curr_content.strip():
+        print("🔔 内容が更新されています。Discordに通知します。")
+        full = get_full_content(curr_file)
+        send_discord_message(full[:1900])  # Discord制限(2000字弱)
+    else:
+        print("✅ 内容に変更なし。通知しません。")
+else:
+    print("📁 前回データなし。初回として通知します。")
+    full = get_full_content(curr_file)
+    send_discord_message(full[:1900])
+
 # -----------------------------------------------------
 # Discord通知
 # -----------------------------------------------------
-import os
-import requests
 
-DISCORD_WEBHOOK_URL = os.environ["DISCORD_WEBHOOK_URL"]
-try:
-    with open("result_name_madori.txt", "r", encoding="utf-8") as f:
-        content = f.read()
-    # ✅ 4行目以降だけログに表示
-    lines = content.splitlines()
-    if len(lines) > 3:
-        print("\n".join(lines[3:]))  # 4行目以降を結合して表示
-    else:
-        print("⚠️ ファイルに4行目以降がありません。")
-
-    max_len = 1900
-    chunks = [content[i:i+max_len] for i in range(0, len(content), max_len)]
-
-    for chunk in chunks:
-        data = {
-            "content": f"📢 **空室情報更新**\n```{chunk}```",
-            "username": "jkkchecker"
-        }
-        requests.post(DISCORD_WEBHOOK_URL, json=data)
-
-    print("✅ Discord通知を送信しました。")
-except Exception as e:
-    print("⚠️ Discord通知に失敗しました:", e)   
+#DISCORD_WEBHOOK_URL = os.environ["DISCORD_WEBHOOK_URL"]
+#try:
+#    with open("result_name_madori.txt", "r", encoding="utf-8") as f:
+#        content = f.read()
+#    # ✅ 4行目以降だけログに表示
+#    lines = content.splitlines()
+#    if len(lines) > 3:
+#        print("\n".join(lines[3:]))  # 4行目以降を結合して表示
+#    else:
+#        print("⚠️ ファイルに4行目以降がありません。")
+#
+#    max_len = 1900
+#    chunks = [content[i:i+max_len] for i in range(0, len(content), max_len)]
+#
+#    for chunk in chunks:
+#        data = {
+#            "content": f"📢 **空室情報更新**\n```{chunk}```",
+#            "username": "jkkchecker"
+#        }
+#        requests.post(DISCORD_WEBHOOK_URL, json=data)
+#
+#    print("✅ Discord通知を送信しました。")
+#except Exception as e:
+#    print("⚠️ Discord通知に失敗しました:", e)   
 
 
 
