@@ -176,15 +176,12 @@ try:
  except Exception as e:
     print("⚠️ Discord通知に失敗しました:", e)   
 
-# ✅ 4行目以降だけログに表示
-lines = content.splitlines()
-if len(lines) > 3:
-    print("📄 result_name_madori.txt の 4行目以降:")
-    print("-" * 60)
-    print("\n".join(lines[3:]))  # 4行目以降を結合して表示
-    print("-" * 60)
-else:
-    print("⚠️ ファイルに4行目以降がありません。")
+　　 # ✅ 4行目以降だけログに表示
+    lines = content.splitlines()
+    if len(lines) > 3:
+        print("\n".join(lines[3:]))  # 4行目以降を結合して表示
+    else:
+        print("⚠️ ファイルに4行目以降がありません。")
 
 
 
