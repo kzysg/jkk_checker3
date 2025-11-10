@@ -161,6 +161,12 @@ DISCORD_WEBHOOK_URL = os.environ["DISCORD_WEBHOOK_URL"]
 try:
     with open("result_name_madori.txt", "r", encoding="utf-8") as f:
         content = f.read()
+    　　 # ✅ 4行目以降だけログに表示
+    lines = content.splitlines()
+    if len(lines) > 3:
+        print("\n".join(lines[3:]))  # 4行目以降を結合して表示
+    else:
+        print("⚠️ ファイルに4行目以降がありません。")
 
     max_len = 1900
     chunks = [content[i:i+max_len] for i in range(0, len(content), max_len)]
@@ -176,12 +182,7 @@ try:
  except Exception as e:
     print("⚠️ Discord通知に失敗しました:", e)   
 
-　　 # ✅ 4行目以降だけログに表示
-    lines = content.splitlines()
-    if len(lines) > 3:
-        print("\n".join(lines[3:]))  # 4行目以降を結合して表示
-    else:
-        print("⚠️ ファイルに4行目以降がありません。")
+
 
 
 
