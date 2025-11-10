@@ -135,7 +135,7 @@ with open("result_name_madori.txt", "w", encoding="utf-8") as f:
     f.write(f"取得日時: {now}\n")
     f.write(f"空き住戸数: {len(results)}件\n\n")
     f.write("住宅名 | 市区町村 | 間取り | 家賃\n")
-    f.write("-" * 60 + "\n")
+    f.write("-" * 35 + "\n")
     for r in results:
         f.write(f"{r['住宅名']} | {r['市区町村']} | {r['間取り']} | {r['家賃']}\n")
 
