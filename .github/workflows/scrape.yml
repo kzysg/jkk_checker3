@@ -21,7 +21,8 @@ jobs:
       with:
         name: previous-result
         path: previous_result
-
+      continue-on-error: true   # エラーでも続行
+    
     - name: Setup Python
       uses: actions/setup-python@v4
       with:
