@@ -153,42 +153,35 @@ print(f"💾 result_name_madori.txt に {len(results)} 件保存しました。"
 now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 print(f"🏠 実行時刻: {now}")
 
-# --- 先頭は既存のスクレイピング処理（省略） ---
-# （あなたの既存コードのまま result_name_madori.txt が出力される前提）
-
-
-
+# -----------------------------------------------------
+# 差分比較と Discord 通知
+# -----------------------------------------------------
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 def send_discord_message(content: str):
     if not DISCORD_WEBHOOK_URL:
         print("⚠️ DISCORD_WEBHOOK_URL が設定されていません。")
         return
-    data = {"content": f"📢 **空室情報更新**\n```{content}```", "username": "jkkchecker"}
-    try:
-        r = requests.post(DISCORD_WEBHOOK_URL, json=data, timeout=10)
-        print(f"📤 Discord POST -> status: {r.status_code}")
-    except Exception as e:
-        print("⚠️ Discord送信で例外:", e)
+    # Discordは1メッセージ2000文字制限
+    max_len = 1900
+    chunks = [content[i:i+max_len] for i in range(0, len(content), max_len)]
+    for i, chunk in enumerate(chunks, start=1):
+        data = {
+            "content": f"📢 **空室情報更新** ({i}/{len(chunks)})\n```{chunk}```",
+            "username": "jkkchecker"
+        }
+        r = requests.post(DISCORD_WEBHOOK_URL, json=data)
+        print(f"📤 Discord POST ({i}/{len(chunks)}) -> status: {r.status_code}")
 
-def read_file_normalized(path: str) -> str:
-    """ファイルを読み、行ごとに正規化して返す（比較用）"""
-    with open(path, "r", encoding="utf-8") as f:
-        lines = f.read().splitlines()
-    # 正規化ルール（必要に応じて調整）
-    norm_lines = []
+def normalize_lines(lines):
+    """比較のために文字列を正規化"""
+    normed = []
     for ln in lines:
-        # 全角スペースを半角に、先頭/末尾の空白削除、連続スペースを単一に
-        ln2 = ln.replace("\u3000", " ").strip()
-        ln2 = re.sub(r"\s+", " ", ln2)
-        norm_lines.append(ln2)
-    return "\n".join(norm_lines)
+        ln2 = ln.replace("\u3000", " ")  # 全角スペース→半角
+        ln2 = re.sub(r"\s+", " ", ln2.strip())  # 余分な空白削除
+        normed.append(ln2)
+    return [l for l in normed if l]  # 空行を除外
 
-def read_full(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-# 比較対象
 prev_file = "previous_result/result_name_madori.txt"
 curr_file = "result_name_madori.txt"
 
@@ -199,40 +192,36 @@ print(f"-> 前回ファイル: {prev_file} (exists={os.path.exists(prev_file)})"
 if not os.path.exists(curr_file):
     print("❌ 現在の result_name_madori.txt が見つかりません。処理を中止します。")
 else:
-    # current の 4行目以降（比較用）を正規化して取得
     with open(curr_file, "r", encoding="utf-8") as f:
         curr_lines = f.read().splitlines()
+
+    # 4行目以降（データ本体部分）
     curr_main = curr_lines[3:] if len(curr_lines) > 3 else []
-    # 正規化（行ごと）
-    curr_main_norm = [re.sub(r"\s+", " ", ln.replace("\u3000", " ").strip()) for ln in curr_main]
+    curr_norm = normalize_lines(curr_main)
 
     if not os.path.exists(prev_file):
-        print("📁 前回データなし（previous_result が見つかりません）。初回通知を行います。")
-        # 通知はファイル全体（1行目から）
-        full = read_full(curr_file)
-        send_discord_message(full[:1900])
+        print("📁 前回データなし（初回通知を行います）")
+        send_discord_message("\n".join(curr_lines))
     else:
-        # 前回ファイルの 4行目以降を読み、正規化
         with open(prev_file, "r", encoding="utf-8") as f:
             prev_lines = f.read().splitlines()
         prev_main = prev_lines[3:] if len(prev_lines) > 3 else []
-        prev_main_norm = [re.sub(r"\s+", " ", ln.replace("\u3000", " ").strip()) for ln in prev_main]
+        prev_norm = normalize_lines(prev_main)
 
-        # 比較（行単位で差分を取得）
-        diff = list(difflib.unified_diff(prev_main_norm, curr_main_norm, lineterm=""))
+        # 差分比較
+        diff = list(difflib.unified_diff(prev_norm, curr_norm, lineterm=""))
+        # 内容が完全一致していれば通知しない
         if not diff:
-            print("✅ 前回と同一（正規化後）。Discord通知は行いません。")
+            print("✅ 内容に変更なし（住宅データ一致）。通知しません。")
         else:
-            print("🔔 差分あり。差分の行数:", len(diff))
-            # ログにdiffを全部出す（長ければ途中省略されますがGitHub上で見えます）
-            print("\n".join(diff))
-            # Discordには「ファイル全体」を送信（1行目から）
-            full = read_full(curr_file)
-            send_discord_message(full[:1900])
+            print("🔔 差分あり。Discordに通知します。")
+            print("\n".join(diff[:20]))  # 最初の20行だけログ出力
+            send_discord_message("\n".join(curr_lines))
 
-# 終了時、デバッグ用に previous_result ディレクトリの中を表示（Workflowログ確認用）
+# 終了時に previous_result の確認
 if os.path.isdir("previous_result"):
     print("📂 previous_result の中身:", os.listdir("previous_result"))
 else:
     print("📂 previous_result ディレクトリは存在しません。")
+
 
