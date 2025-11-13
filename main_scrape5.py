@@ -4,12 +4,19 @@ import re
 import os
 import requests
 import difflib
+import subprocess
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
 
+RESULT_FILE = "result_name_madori.txt"
+LATEST_FILE = "latest_result.txt"
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+GITHUB_ACTOR = os.environ.get("GITHUB_ACTOR")
+GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY")  # ex: user/repo
 
 # -----------------------------------------------------
 # 設定
@@ -144,25 +151,65 @@ with open("result_name_madori.txt", "w", encoding="utf-8") as f:
 
 print(f"💾 result_name_madori.txt に {len(results)} 件保存しました。")
 
-# -----------------------------------------------------
-# Discord通知（毎回送信）
-# -----------------------------------------------------
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
+# --- Discord通知用 ---
 def send_discord_message(content: str):
     if not DISCORD_WEBHOOK_URL:
         print("⚠️ Discord Webhook が未設定")
         return
-    data = {"content": f"📢 **空室情報通知**\n```{content}```", "username": "jkkchecker"}
+    data = {"content": f"📢 **空室情報更新**\n```{content}```", "username": "jkkchecker"}
     try:
         r = requests.post(DISCORD_WEBHOOK_URL, json=data, timeout=10)
         print(f"📤 Discord POST -> status: {r.status_code}")
     except Exception as e:
         print("⚠️ Discord送信で例外:", e)
 
-# 全文送信（毎回）
-with open("result_name_madori.txt", "r", encoding="utf-8") as f:
-    content = f.read()
-send_discord_message(content[:1900])
+# --- ファイル読み込み（4行目以降を正規化） ---
+def read_file_normalized(path: str):
+    if not os.path.exists(path):
+        return []
+    with open(path, "r", encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    norm_lines = [re.sub(r"\s+", " ", ln.replace("\u3000", " ").strip()) for ln in lines[3:]]
+    return norm_lines
+
+def read_full(path: str):
+    if not os.path.exists(path):
+        return ""
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+# --- 差分チェック ---
+curr_main = read_file_normalized(RESULT_FILE)
+prev_main = read_file_normalized(LATEST_FILE)
+
+if prev_main == []:
+    print("📁 latest_result.txt が存在しません。初回通知を行います。")
+    full = read_full(RESULT_FILE)
+    send_discord_message(full[:1900])
+elif curr_main != prev_main:
+    print("🔔 差分あり。Discordに通知します。")
+    diff = list(difflib.unified_diff(prev_main, curr_main, lineterm=""))
+    print("\n".join(diff))
+    full = read_full(RESULT_FILE)
+    send_discord_message(full[:1900])
+else:
+    print("✅ 内容に変更なし。Discord通知は行いません。")
+
+# --- latest_result.txt を更新 ---
+with open(RESULT_FILE, "r", encoding="utf-8") as src, open(LATEST_FILE, "w", encoding="utf-8") as dst:
+    dst.write(src.read())
+
+# --- Git操作でコミット & push ---
+try:
+    subprocess.run(["git", "config", "user.name", GITHUB_ACTOR], check=True)
+    subprocess.run(["git", "config", "user.email", f"{GITHUB_ACTOR}@users.noreply.github.com"], check=True)
+    subprocess.run(["git", "add", LATEST_FILE], check=True)
+    subprocess.run(["git", "commit", "-m", f"Update {LATEST_FILE} ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"], check=True)
+    push_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{GITHUB_REPOSITORY}.git"
+    subprocess.run(["git", "push", push_url, "HEAD:main"], check=True)
+    print(f"✅ {LATEST_FILE} を GitHub にコミット & pushしました")
+except subprocess.CalledProcessError as e:
+    print("⚠️ Git操作でエラー:", e)
 
 # -----------------------------------------------------
 # 出力
