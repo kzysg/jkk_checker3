@@ -1,77 +1,79 @@
-name: JKK Scraper
+name: JKK Scraper (with Cache Update)
 
 on:
-#  schedule:
-#    # UTC23〜UTC23:55 → JST8〜8:55
-#    - cron: '*/5 23 * * *'
-#    # UTC0〜UTC12:55 → JST9〜21:55
-#    - cron: '*/5 0-15 * * *'
-  workflow_dispatch:  # 手動実行も可能
+  # schedule:
+  #   - cron: '*/5 23 * * *'
+  #   - cron: '*/5 0-15 * * *'
+  workflow_dispatch:
 
 jobs:
+  # ----------------------------
+  # ① ジョブ1：キャッシュを読み込んでスクレイピング実行
+  # ----------------------------
   scrape:
     runs-on: ubuntu-latest
-
+    outputs:
+      changed: ${{ steps.scraper.outputs.changed }}
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-      
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    # ✅ Chrome & ChromeDriver を自動で同期インストール
-    - name: Install matching ChromeDriver
-      run: |
-        sudo apt update
-        sudo apt install -y google-chrome-stable unzip curl
-        CHROME_VERSION=$(google-chrome --version | grep -oE '[0-9]+(\.[0-9]+){3}' | cut -d '.' -f 1)
-        echo "Detected Chrome major version: $CHROME_VERSION"
-        DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" \
-          | jq -r --arg v "$CHROME_VERSION" '.versions[] | select(.version | startswith($v + ".")) | .version' | head -n 1)
-        echo "Installing ChromeDriver version: $DRIVER_VERSION"
-        DRIVER_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" \
-          | jq -r --arg v "$DRIVER_VERSION" '.versions[] | select(.version == $v) | .downloads.chromedriver[] | select(.platform=="linux64").url')
-        curl -Lo chromedriver.zip "$DRIVER_URL"
-        unzip chromedriver.zip
-        sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
-        sudo chmod +x /usr/local/bin/chromedriver
- 
-      
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install selenium beautifulsoup4 requests jq
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
-    - name: Set Discord Webhook
-      run: echo "DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}" >> $GITHUB_ENV
+      - name: Install Chrome & ChromeDriver
+        run: |
+          sudo apt update
+          sudo apt install -y google-chrome-stable unzip curl jq
+          CHROME_VERSION=$(google-chrome --version | grep -oE '[0-9]+(\.[0-9]+){3}' | cut -d '.' -f 1)
+          DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" \
+            | jq -r --arg v "$CHROME_VERSION" '.versions[] | select(.version | startswith($v + ".")) | .version' | head -n 1)
+          DRIVER_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" \
+            | jq -r --arg v "$DRIVER_VERSION" '.versions[] | select(.version == $v) | .downloads.chromedriver[] | select(.platform=="linux64").url')
+          curl -Lo chromedriver.zip "$DRIVER_URL"
+          unzip chromedriver.zip
+          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
 
-      # --- キャッシュ復元 ---
-    - name: Restore previous result cache
-      uses: actions/cache@v4
-      with:
-        path: previous_result.txt
-        key: previous-result-${{ github.run_id }}
-        restore-keys: |
-          previous-result-
-        
-    - name: Show cached previous result
-      if: steps.cache-prev.outputs.cache-hit == 'true'
-      run: |
-        echo "📂 Cached previous_result.txt contents:"
-        cat previous_result.txt || echo "⚠️ previous_result.txt not found"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install selenium beautifulsoup4 requests jq
 
-        
-    - name: Run scraper
-      run: python main_scrape4.py
-      
-# --- キャッシュ保存（常に最新に更新）---
-    - name: Save previous result cache
-      uses: actions/cache@v4
-      with:
-        path: previous_result.txt
-        key: previous-result-${{ github.run_id }}
+      - name: Restore previous result cache
+        id: restore-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: previous_result.txt
+          key: previous-result
+          restore-keys: |
+            previous-result
 
-    
-    
+      - name: Show cached previous result
+        run: |
+          echo "📂 Cached previous_result.txt:"
+          cat previous_result.txt || echo "⚠️ previous_result.txt not found"
+
+      - name: Run scraper
+        id: scraper
+        run: |
+          python main_scrape4.py
+          echo "changed=true" >> $GITHUB_OUTPUT  # 差分通知が必要なときのみフラグ出力
+
+  # ----------------------------
+  # ② ジョブ2：キャッシュを上書き更新（常に最新保存）
+  # ----------------------------
+  update-cache:
+    runs-on: ubuntu-latest
+    needs: scrape
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Upload new previous_result.txt to cache
+        uses: actions/cache/save@v4
+        with:
+          path: previous_result.txt
+          key: previous-result
