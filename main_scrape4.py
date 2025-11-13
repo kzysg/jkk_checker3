@@ -144,59 +144,25 @@ with open("result_name_madori.txt", "w", encoding="utf-8") as f:
 
 print(f"💾 result_name_madori.txt に {len(results)} 件保存しました。")
 
-
-RESULT_FILE = "result_name_madori.txt"
-PREV_FILE = "previous_result.txt"
-
+# -----------------------------------------------------
+# Discord通知（毎回送信）
+# -----------------------------------------------------
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-
 def send_discord_message(content: str):
     if not DISCORD_WEBHOOK_URL:
         print("⚠️ Discord Webhook が未設定")
         return
-    data = {"content": f"📢 **空室情報更新**\n```{content}```", "username": "jkkchecker"}
+    data = {"content": f"📢 **空室情報通知**\n```{content}```", "username": "jkkchecker"}
     try:
         r = requests.post(DISCORD_WEBHOOK_URL, json=data, timeout=10)
         print(f"📤 Discord POST -> status: {r.status_code}")
     except Exception as e:
         print("⚠️ Discord送信で例外:", e)
 
-def read_file_normalized(path: str):
-    if not os.path.exists(path):
-        return []
-    with open(path, "r", encoding="utf-8") as f:
-        lines = f.read().splitlines()
-    # 4行目以降、全角スペースを半角に変換、連続空白を1つに
-    norm_lines = [re.sub(r"\s+", " ", ln.replace("\u3000", " ").strip()) for ln in lines[3:]]
-    return norm_lines
-
-def read_full(path: str):
-    if not os.path.exists(path):
-        return ""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-# --- 差分チェック ---
-curr_main = read_file_normalized(RESULT_FILE)
-prev_main = read_file_normalized(PREV_FILE)
-
-if prev_main == []:
-    print("📁 前回データなし。初回通知を行います。")
-    full = read_full(RESULT_FILE)
-    send_discord_message(full[:1900])
-elif curr_main != prev_main:
-    print("🔔 差分あり。Discordに通知します。")
-    diff = list(difflib.unified_diff(prev_main, curr_main, lineterm=""))
-    print("\n".join(diff))
-    full = read_full(RESULT_FILE)
-    send_discord_message(full[:1900])
-else:
-    print("✅ 内容に変更なし。通知は行いません。")
-
-# --- 今回の結果を previous_result.txt にコピーしてキャッシュ更新 ---
-with open(RESULT_FILE, "r", encoding="utf-8") as src, open(PREV_FILE, "w", encoding="utf-8") as dst:
-    dst.write(src.read())
-
+# 全文送信（毎回）
+with open("result_name_madori.txt", "r", encoding="utf-8") as f:
+    content = f.read()
+send_discord_message(content[:1900])
 
 # -----------------------------------------------------
 # 出力
