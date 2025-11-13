@@ -19,6 +19,31 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+          # ✅ Chrome & ChromeDriver を自動で同期インストール
+      - name: Install matching ChromeDriver
+        run: |
+          sudo apt update
+          sudo apt install -y google-chrome-stable unzip curl
+          CHROME_VERSION=$(google-chrome --version | grep -oE '[0-9]+(\.[0-9]+){3}' | cut -d '.' -f 1)
+          echo "Detected Chrome major version: $CHROME_VERSION"
+          DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" \
+            | jq -r --arg v "$CHROME_VERSION" '.versions[] | select(.version | startswith($v + ".")) | .version' | head -n 1)
+          echo "Installing ChromeDriver version: $DRIVER_VERSION"
+          DRIVER_URL=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" \
+            | jq -r --arg v "$DRIVER_VERSION" '.versions[] | select(.version == $v) | .downloads.chromedriver[] | select(.platform=="linux64").url')
+          curl -Lo chromedriver.zip "$DRIVER_URL"
+          unzip chromedriver.zip
+          sudo mv chromedriver-linux64/chromedriver /usr/local/bin/
+          sudo chmod +x /usr/local/bin/chromedriver
+ 
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install selenium beautifulsoup4 requests jq
+
+      - name: Set Discord Webhook
+        run: echo "DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}" >> $GITHUB_ENV
 
       - name: Restore previous cache
         id: restore
