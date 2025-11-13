@@ -10,18 +10,59 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
 
-
 # -----------------------------------------------------
 # 設定
 # -----------------------------------------------------
 URL = "https://jhomes.to-kousya.or.jp/search/jkknet/service/akiyaJyoukenStartInit"
 WAIT_TIME = 10  # ページロード待機秒数
+RESULT_FILE = "result_name_madori.txt"
+PREV_FILE = "previous_result.txt"
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
 # -----------------------------------------------------
-# ブラウザ起動
+# 関数定義
 # -----------------------------------------------------
-options = Options()  
-options.add_argument("--headless")  # 画面を表示しない
+def send_discord_message(content: str):
+    """Discordに通知"""
+    if not DISCORD_WEBHOOK_URL:
+        print("⚠️ Discord Webhook が未設定")
+        return
+    data = {
+        "content": f"📢 **空室情報更新**\n```{content}```",
+        "username": "jkkchecker"
+    }
+    try:
+        r = requests.post(DISCORD_WEBHOOK_URL, json=data, timeout=10)
+        print(f"📤 Discord POST -> status: {r.status_code}")
+    except Exception as e:
+        print("⚠️ Discord送信で例外:", e)
+
+
+def read_file_normalized(path: str):
+    """4行目以降を正規化して読み込む"""
+    if not os.path.exists(path):
+        return []
+    with open(path, "r", encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    norm_lines = [re.sub(r"\s+", " ", ln.replace("\u3000", " ").strip()) for ln in lines[3:]]
+    return norm_lines
+
+
+def read_full(path: str):
+    """ファイル全体を読み込む"""
+    if not os.path.exists(path):
+        return ""
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+# -----------------------------------------------------
+# スクレイピング開始
+# -----------------------------------------------------
+print("🚀 スクレイピング開始")
+
+options = Options()
+options.add_argument("--headless")
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--disable-gpu")
@@ -30,94 +71,65 @@ driver = webdriver.Chrome(options=options)
 driver.get(URL)
 time.sleep(3)
 
-# 待機ページから次のページへ進む（リンクをクリック）
+# 「次へ」ボタンをクリック
 try:
     next_link = driver.find_element(By.XPATH, "//a[contains(@onclick, 'submitNext')]")
     next_link.click()
-    print("✅ 次のページへのリンクをクリックしました")
+    print("✅ ページ遷移")
     time.sleep(WAIT_TIME)
 except Exception as e:
-    print("⚠️ リンククリック失敗（自動リダイレクト待機中）:", e)
+    print("⚠️ 自動リダイレクト待機:", e)
     time.sleep(WAIT_TIME)
 
-# ウィンドウハンドルを切り替える（新しいウィンドウが開いた場合）
+# 新しいウィンドウへ
 if len(driver.window_handles) > 1:
     driver.switch_to.window(driver.window_handles[-1])
-    print("✅ 新しいウィンドウに切り替えました")
+    print("✅ 新ウィンドウ切替")
     time.sleep(3)
 
-# デバッグ: 現在のページのHTMLを保存
-with open("page_source.html", "w", encoding="utf-8") as f:
-    f.write(driver.page_source)
-print("📄 ページのHTMLを page_source.html に保存しました")
-
-# -----------------------------------------------------
-# 「世田谷区」と「大田区」にチェックを入れる
-# -----------------------------------------------------
+# 検索条件入力
 try:
-    # 世田谷区 (value="12")
-    checkbox_setagaya = driver.find_element(By.CSS_SELECTOR, 'input[value="12"][type="checkbox"]')
-    checkbox_setagaya.click()
-    print("✅ 世田谷区にチェックを入れました")
-    time.sleep(0.5)
-
-    # 大田区 (value="11")
-    checkbox_ota = driver.find_element(By.CSS_SELECTOR, 'input[value="11"][type="checkbox"]')
-    checkbox_ota.click()
-    print("✅ 大田区にチェックを入れました")
-    time.sleep(1)
+    driver.find_element(By.CSS_SELECTOR, 'input[value="12"][type="checkbox"]').click()
+    driver.find_element(By.CSS_SELECTOR, 'input[value="11"][type="checkbox"]').click()
+    print("✅ 世田谷区・大田区を選択")
 except Exception as e:
-    print("❌ チェックボックス操作エラー:", e)
+    print("❌ チェックボックスエラー:", e)
 
-
-# -----------------------------------------------------
-# 「検索」ボタンをクリック
-# -----------------------------------------------------
+# 検索実行
 try:
-    # 画像のalt属性で検索ボタンを探す
     search_button = driver.find_element(By.XPATH, "//img[@alt='検索する']/parent::a")
     search_button.click()
-    print("✅ 検索ボタンをクリックしました")
+    print("✅ 検索ボタンクリック")
     time.sleep(WAIT_TIME)
-    
-    # 検索結果ページのHTMLを保存
-    with open("search_result.html", "w", encoding="utf-8") as f:
-        f.write(driver.page_source)
-    print("📄 検索結果ページを search_result.html に保存しました")
 except Exception as e:
     print("❌ 検索ボタンクリック失敗:", e)
 
-# -----------------------------------------------------
-# 検索結果の取得（改良版：1件/複数件どちらにも対応）
-# -----------------------------------------------------
 html = driver.page_source
 driver.quit()
 
+# -----------------------------------------------------
+# 検索結果の抽出
+# -----------------------------------------------------
 soup = BeautifulSoup(html, "html.parser")
-
 results = []
-
-# 「ListTXT1」または「ListTXT2」クラスを持つ <tr> をすべて取得
 rows = soup.find_all("tr", class_=re.compile(r"ListTXT[12]"))
 
 for row in rows:
     cols = [td.get_text(strip=True) for td in row.find_all("td")]
     if len(cols) >= 10:
-        name = cols[1]        # 住宅名
-        city = cols[2]        # 市区町村
-        madori = cols[5]      # 間取り
-        yachin = cols[7]      # 家賃
+        name = cols[1]
+        city = cols[2]
+        madori = cols[5]
+        yachin = cols[7]
+    else:
+        continue
 
-    # onclick="senPage('','BOSHU123','456','1')" の情報を取得
     a_tag = row.find("a", href=re.compile(r"senPage"))
+    boshuNo = jyutakuCd = yusenKbn = ""
     if a_tag and "onclick" in a_tag.attrs:
         m = re.search(r"senPage\('','([A-Z0-9]+)','(\d+)','(\d+)'\)", str(a_tag["onclick"]))
         if m:
             boshuNo, jyutakuCd, yusenKbn = m.groups()
-        else:
-            boshuNo = jyutakuCd = yusenKbn = ""
-    else:
-        boshuNo = jyutakuCd = yusenKbn = ""
 
     results.append({
         "住宅名": name,
@@ -130,11 +142,10 @@ for row in rows:
     })
 
 # -----------------------------------------------------
-# 結果を result_name_madori.txt に保存
+# 結果をファイルに保存
 # -----------------------------------------------------
 now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-with open("result_name_madori.txt", "w", encoding="utf-8") as f:
+with open(RESULT_FILE, "w", encoding="utf-8") as f:
     f.write(f"取得日時: {now}\n")
     f.write(f"空き住戸数: {len(results)}件\n\n")
     f.write("住宅名 | 市区町村 | 間取り | 家賃\n")
@@ -142,65 +153,34 @@ with open("result_name_madori.txt", "w", encoding="utf-8") as f:
     for r in results:
         f.write(f"{r['住宅名']} | {r['市区町村']} | {r['間取り']} | {r['家賃']}\n")
 
-print(f"💾 result_name_madori.txt に {len(results)} 件保存しました。")
+print(f"💾 {RESULT_FILE} に {len(results)} 件保存しました。")
 
-
-RESULT_FILE = "result_name_madori.txt"
-PREV_FILE = "previous_result.txt"
-
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-
-def send_discord_message(content: str):
-    if not DISCORD_WEBHOOK_URL:
-        print("⚠️ Discord Webhook が未設定")
-        return
-    data = {"content": f"📢 **空室情報更新**\n```{content}```", "username": "jkkchecker"}
-    try:
-        r = requests.post(DISCORD_WEBHOOK_URL, json=data, timeout=10)
-        print(f"📤 Discord POST -> status: {r.status_code}")
-    except Exception as e:
-        print("⚠️ Discord送信で例外:", e)
-
-def read_file_normalized(path: str):
-    if not os.path.exists(path):
-        return []
-    with open(path, "r", encoding="utf-8") as f:
-        lines = f.read().splitlines()
-    # 4行目以降、全角スペースを半角に変換、連続空白を1つに
-    norm_lines = [re.sub(r"\s+", " ", ln.replace("\u3000", " ").strip()) for ln in lines[3:]]
-    return norm_lines
-
-def read_full(path: str):
-    if not os.path.exists(path):
-        return ""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-# --- 差分チェック ---
+# -----------------------------------------------------
+# 差分比較
+# -----------------------------------------------------
 curr_main = read_file_normalized(RESULT_FILE)
 prev_main = read_file_normalized(PREV_FILE)
 
-if prev_main == []:
-    print("📁 前回データなし。初回通知を行います。")
+if not os.path.exists(PREV_FILE) or prev_main == []:
+    print("📁 前回データなし → 初回通知")
     full = read_full(RESULT_FILE)
     send_discord_message(full[:1900])
+
 elif curr_main != prev_main:
-    print("🔔 差分あり。Discordに通知します。")
+    print("🔔 差分あり → Discord通知")
     diff = list(difflib.unified_diff(prev_main, curr_main, lineterm=""))
-    print("\n".join(diff))
+    print("\n".join(diff[:40]))  # ログ出力は最初の40行まで
     full = read_full(RESULT_FILE)
     send_discord_message(full[:1900])
 else:
-    print("✅ 内容に変更なし。通知は行いません。")
+    print("✅ 差分なし → 通知スキップ")
 
-# --- 今回の結果を previous_result.txt にコピーしてキャッシュ更新 ---
+# -----------------------------------------------------
+# キャッシュ更新（日時も常に新規）
+# -----------------------------------------------------
 with open(RESULT_FILE, "r", encoding="utf-8") as src, open(PREV_FILE, "w", encoding="utf-8") as dst:
     dst.write(src.read())
 
+print(f"📦 キャッシュ更新完了: {PREV_FILE}")
 
-# -----------------------------------------------------
-# 出力
-# -----------------------------------------------------
-now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-print(f"🏠 実行時刻: {now}")
-
+print(f"🏁 実行完了 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
