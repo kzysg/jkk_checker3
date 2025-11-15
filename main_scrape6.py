@@ -9,6 +9,9 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
+from datetime import datetime
+from zoneinfo import ZoneInfo  # Python 3.9+
+
 
 # ファイル名
 RESULT_FILE = "result_name_madori.txt"
@@ -96,7 +99,7 @@ for row in rows:
     })
 
 # result_name_madori.txt 保存
-now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+now = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")  # JSTタイムゾーンを指定
 with open(RESULT_FILE, "w", encoding="utf-8") as f:
     f.write(f"取得日時: {now}\n")
     f.write(f"空き住戸数: {len(results)}件\n\n")
@@ -164,5 +167,5 @@ except subprocess.CalledProcessError:
 # -----------------------------------------------------
 # 出力
 # -----------------------------------------------------
-now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+now = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")  # JSTタイムゾーンを指定
 print(f"🏠 実行時刻: {now}")
